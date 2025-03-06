@@ -1,0 +1,2 @@
+langchain
+langchain-groq==0.2.4
