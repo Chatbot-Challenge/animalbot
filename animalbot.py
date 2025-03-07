@@ -17,25 +17,30 @@ from typing import List, Any, Dict
 from langchain_core.prompts import PromptTemplate
 from langchain_core.outputs import LLMResult
 
-if not os.environ.get("GROQ_API_KEY"):
-  os.environ["GROQ_API_KEY"] = getpass.getpass("Enter API key for Groq: ")
+from transformers.utils import logging
+logging.set_verbosity_error() 
 
-from langchain_groq import ChatGroq
+from langchain_huggingface import HuggingFaceEndpoint
+# from langchain_groq import ChatGroq
+
+# if not os.environ.get("GROQ_API_KEY"):
+#   os.environ["GROQ_API_KEY"] = getpass.getpass("Enter API key for Groq: ")
 
 # https://python.langchain.com/v0.1/docs/modules/callbacks/
 class CustomCallback(BaseCallbackHandler):
 
-    def on_chat_model_start(
-        self, serialized: Dict[str, Any], messages: List[List[BaseMessage]], **kwargs: Any
+    def __init__(self):
+        self.messages = {}
+    
+    def on_llm_start(
+        self, serialized: dict[str, Any], prompts: list[str], **kwargs: Any
     ) -> Any:
-        self.on_chat_model_start_messages = messages
-        self.on_chat_model_start_kwargs = kwargs
+        self.messages["on_llm_start_prompts"] = prompts    
+        self.messages["on_llm_start_kwargs"] = kwargs    
 
     def on_llm_end(self, response: LLMResult, **kwargs: Any) -> Any:
-        """Run when LLM ends running."""
-
-        self.on_llm_end_response = response
-        self.on_llm_end_kwargs = kwargs
+        self.messages["on_llm_end_response"] = response    
+        self.messages["on_llm_end_kwargs"] = kwargs    
 
 class AnimalAgent:
 
@@ -43,9 +48,23 @@ class AnimalAgent:
     STATE_FOX = "fox"
 
     def __init__(self):
-        self.llm = ChatGroq(
-            model="llama3-8b-8192"
+
+        self.endpoint_url = "http://mds-gpu-medinym.et.uni-magdeburg.de:9000"
+
+        self.llm =  HuggingFaceEndpoint(
+            endpoint_url=self.endpoint_url,
+            max_new_tokens=512,
+            top_k=10,
+            top_p=0.95,
+            typical_p=0.95,
+            temperature=0.01,
+            repetition_penalty=1.03,
         )
+
+        # self.llm = ChatGroq(
+        #     model="llama3-8b-8192"
+        # )
+        
         self.state = AnimalAgent.STATE_DUCK
         self.fox_chain = self.create_fox_chain()
         self.duck_chain = self.create_duck_chain()
@@ -112,6 +131,17 @@ Follow these rules
         return chain
 
     def create_text_classifier(self):
+
+        llm = HuggingFaceEndpoint(
+            endpoint_url=self.endpoint_url,
+            max_new_tokens=512,
+            top_k=10,
+            top_p=0.95,
+            typical_p=0.95,
+            temperature=0.01,
+            repetition_penalty=1.03,
+        )
+
         prompt = """Given message to a chatbot, classifiy if the message tells the chatbot to be a duck, a fox or none of these. 
                 
 * Answer with duck, fox or none.
@@ -122,12 +152,10 @@ Follow these rules
 </message>
 
 Classification:"""
+
         chain = (
             PromptTemplate.from_template(prompt)
-            | ChatGroq(
-                model="llama3-8b-8192",
-                temperature=0
-            )
+            | llm
             | StrOutputParser()
         )
         return chain
@@ -154,18 +182,8 @@ Classification:"""
             "user_message": str(user_message),
             "chatbot_response": str(chatbot_response),
             "agent_state": self.state,
-            "classification": {
-                "on_chat_model_start_messages": classification_callback.on_chat_model_start_messages,
-                "on_chat_model_start_kwargs": classification_callback.on_chat_model_start_kwargs,
-                "on_llm_end_response": classification_callback.on_llm_end_response,
-                "on_llm_end_kwargs": classification_callback.on_llm_end_kwargs
-            },
-            "chatbot_response": {
-                "on_chat_model_start_messages": response_callback.on_chat_model_start_messages,
-                "on_chat_model_start_kwargs": response_callback.on_chat_model_start_kwargs,
-                "on_llm_end_response": response_callback.on_llm_end_response,
-                "on_llm_end_kwargs": response_callback.on_llm_end_kwargs
-            }
+            "classification": {key:value for key, value in classification_callback.messages.items()},
+            "chatbot_response": {key:value for key, value in response_callback.messages.items()}
         }
 
         return chatbot_response, log_message
