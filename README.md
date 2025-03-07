@@ -27,6 +27,4 @@ Bot: My claws! Unlike most dogs, I have retractable claws that I can pull back i
 ## How to run it
 
 * Install the requirements.txt
-* Register with GROQ and get a free API key: https://groq.com/
-* Set the API Key as environment variable GROQ_API_KEY=... . Optionally you can also set the API key when you run the script.
 * `python animalbot.py` to start the chat on the console 
