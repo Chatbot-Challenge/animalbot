@@ -17,10 +17,15 @@ from typing import List, Any, Dict
 from langchain_core.prompts import PromptTemplate
 from langchain_core.outputs import LLMResult
 
-from transformers.utils import logging
-logging.set_verbosity_error() 
 
 from langchain_huggingface import HuggingFaceEndpoint
+
+# the system emits a log of deprecated warnings to the console if we do not switch if off here
+import sys
+if not sys.warnoptions:
+    import warnings
+    warnings.simplefilter("ignore")
+
 # from langchain_groq import ChatGroq
 
 # if not os.environ.get("GROQ_API_KEY"):
@@ -59,6 +64,7 @@ class AnimalAgent:
             typical_p=0.95,
             temperature=0.01,
             repetition_penalty=1.03,
+            stop_sequences=["\n"]
         )
 
         # self.llm = ChatGroq(
@@ -87,17 +93,13 @@ class AnimalAgent:
 Follow these rules
 
 * Give short responses of maximal 3 sentences.
-"""
+* Do not include any newlines in the answer.
 
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", prompt),
-                MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
+{chat_history}
+User: {user_message}
+Bot: """
 
-        chain = prompt_template | self.llm | StrOutputParser()    
+        chain = PromptTemplate.from_template(prompt) | self.llm | StrOutputParser()
         return chain
 
     def create_duck_chain(self):
@@ -107,7 +109,6 @@ Follow these rules
 * 360° Vision – Their eyes are positioned on the sides of their heads, giving them nearly a full-circle field of vision. They can see behind them without turning their heads!
 * Synchronized Sleeping – Ducks can sleep with one eye open and one side of their brain awake, allowing them to stay alert for predators while resting.
 * Quack Echo Mystery – There’s an old myth that a duck’s quack doesn’t echo, but it actually does—just at a pitch and tone that makes it hard to notice.
-* Spiral-Shaped Penis – Male ducks have corkscrew-shaped reproductive organs, and some species can extend them in a fraction of a second!
 * Feet That Don’t Feel Cold – Ducks’ feet have no nerves or blood vessels in the webbing, so they can stand on ice without feeling the cold.
 * Egg-Dumping Behavior – Some female ducks practice "brood parasitism," laying eggs in another duck’s nest to have someone else raise their ducklings.
 * Mimicry Skills – Some ducks, like the musk duck, can mimic human speech and other sounds, much like parrots!
@@ -117,17 +118,13 @@ Follow these rules
 Follow these rules
 
 * Give short responses of maximal 3 sentences.
-"""
+* Do not include any newlines in the answer.
 
-        prompt_template = ChatPromptTemplate.from_messages(
-            [
-                ("system", prompt),
-                MessagesPlaceholder("chat_history"),
-                ("human", "{input}"),
-            ]
-        )
+{chat_history}
+User: {user_message}
+Bot: """
 
-        chain = prompt_template  |  self.llm  | StrOutputParser()    
+        chain = PromptTemplate.from_template(prompt) | self.llm | StrOutputParser()
         return chain
 
     def create_text_classifier(self):
@@ -143,15 +140,24 @@ Follow these rules
         )
 
         prompt = """Given message to a chatbot, classifiy if the message tells the chatbot to be a duck, a fox or none of these. 
-                
+
+* Answer with one word only.
 * Answer with duck, fox or none.
 * Do not respond with more than one word.
 
-<message>
-{message}
-</message>
+Examples:
 
-Classification:"""
+Message: Hey there, you are a fox.
+Classification: fox
+
+Message: I know that you are a duck.
+Classification: duck
+
+Message: Hello how are you doing?
+Classification: none
+
+Message: {message}
+Classification: """
 
         chain = (
             PromptTemplate.from_template(prompt)
@@ -163,7 +169,11 @@ Classification:"""
     def get_response(self, user_message, chat_history):
 
         classification_callback = CustomCallback()
-        text_classification = self.text_classifier.invoke(user_message, {"callbacks":[classification_callback]})
+        text_classification = self.text_classifier.invoke(user_message, {"callbacks": [classification_callback], "stop_sequences": ["\n"]})
+
+        if text_classification.find("\n") > 0:
+            text_classification = text_classification[0:text_classification.find("\n")]
+        text_classification = text_classification.strip()
 
         if text_classification == "fox":
             self.state = AnimalAgent.STATE_FOX
@@ -176,13 +186,16 @@ Classification:"""
             chain = self.duck_chain
 
         response_callback = CustomCallback()
-        chatbot_response = chain.invoke({"input": user_message, "chat_history": chat_history}, {"callbacks":[response_callback]})
+        chatbot_response = chain.invoke({"user_message": user_message, "chat_history": "\n".join(chat_history)}, {"callbacks":[response_callback], "stop_sequences": ["\n"]})
 
         log_message = {
             "user_message": str(user_message),
             "chatbot_response": str(chatbot_response),
             "agent_state": self.state,
-            "classification": {key:value for key, value in classification_callback.messages.items()},
+            "classification": {
+                "result": text_classification,
+                "llm_details": {key:value for key, value in classification_callback.messages.items()}
+            },
             "chatbot_response": {key:value for key, value in response_callback.messages.items()}
         }
 
@@ -228,6 +241,7 @@ if __name__ == "__main__":
         chatbot_response, log_message = agent.get_response(user_message, chat_history)
         print("Bot: " + chatbot_response)
 
-        chat_history.extend([HumanMessage(content=user_message), chatbot_response])
-        
+        chat_history.extend("User: " + user_message)
+        chat_history.extend("Bot: " + chatbot_response)
+                
         log_writer.write(log_message)
