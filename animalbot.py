@@ -10,6 +10,7 @@ from langchain_core.outputs import LLMResult
 
 
 from langchain_huggingface import HuggingFaceEndpoint
+from langchain import hub
 
 # the system emits a log of deprecated warnings to the console if we do not switch if off here
 import sys
@@ -38,29 +39,45 @@ class CustomCallback(BaseCallbackHandler):
         self.messages["on_llm_end_response"] = response    
         self.messages["on_llm_end_kwargs"] = kwargs    
 
+# Neue Enum für LLM-Backends
+class LLMBackend(Enum):
+    HUGGINGFACE = "huggingface"
+    OPENAI_COMPATIBLE = "openai_compatible"
+
 class AnimalAgent:
 
     STATE_DUCK = "duck"
     STATE_FOX = "fox"
 
-    def __init__(self):
-
-        self.endpoint_url = "http://mds-gpu-medinym.et.uni-magdeburg.de:9000"
-
-        self.llm =  HuggingFaceEndpoint(
-            endpoint_url=self.endpoint_url,
-            max_new_tokens=512,
-            top_k=10,
-            top_p=0.95,
-            typical_p=0.95,
-            temperature=0.01,
-            repetition_penalty=1.03,
-            stop_sequences=["\n"]
-        )
-
-        # self.llm = ChatGroq(
-        #     model="llama3-8b-8192"
-        # )
+    def __init__(self, backend: LLMBackend = LLMBackend.HUGGINGFACE, api_base_url: str = None, api_key: str = None):
+        self.backend = backend
+        
+        # LLM-Backend Initialisierung
+        if backend == LLMBackend.HUGGINGFACE:
+            self.endpoint_url = "http://mds-gpu-medinym.et.uni-magdeburg.de:9000"
+            self.llm = HuggingFaceEndpoint(
+                endpoint_url=self.endpoint_url,
+                max_new_tokens=512,
+                top_k=10,
+                top_p=0.95,
+                typical_p=0.95,
+                temperature=0.01,
+                repetition_penalty=1.03,
+                stop_sequences=["\n"]
+            )
+        elif backend == LLMBackend.OPENAI_COMPATIBLE:
+            from langchain_openai import ChatOpenAI
+            if api_key is None:
+                api_key = os.getenv("OPENAI_API_KEY") or getpass.getpass("Enter API key for OpenAI compatible API: ")
+            if api_base_url is None:
+                api_base_url = os.getenv("OPENAI_API_BASE")
+            
+            self.llm = ChatOpenAI(
+                base_url=api_base_url,
+                api_key=api_key,
+                temperature=0.01,
+                model_name="llama-3.3-70b-instruct"
+            )
         
         self.state = AnimalAgent.STATE_DUCK
         self.fox_chain = self.create_fox_chain()
@@ -70,7 +87,7 @@ class AnimalAgent:
     def create_fox_chain(self):
         prompt = """You are a fox and have a conversation with a human. You will direct every conversation towards one of these topics. 
 
-* Magnetic Hunting Skills – Foxes can use Earth’s magnetic field to hunt. They often pounce on prey from the northeast, using the magnetic field as a targeting system!
+* Magnetic Hunting Skills – Foxes can use Earth's magnetic field to hunt. They often pounce on prey from the northeast, using the magnetic field as a targeting system!
 * Cat-Like Behavior – Unlike most canines, foxes can retract their claws, have vertical-slit pupils like cats, and even purr when happy.
 * Silent Steps – Foxes have fur-covered footpads that muffle their steps, allowing them to sneak up on prey with ninja-like silence.
 * Communicative Tails – Foxes use their bushy tails (called "brushes") to communicate emotions, signal danger, and even cover their noses for warmth in winter.
@@ -99,9 +116,9 @@ Bot: """
 * Waterproof Feathers – Ducks produce an oil from their uropygial gland (near their tail) that keeps their feathers completely waterproof. Water just rolls right off!
 * 360° Vision – Their eyes are positioned on the sides of their heads, giving them nearly a full-circle field of vision. They can see behind them without turning their heads!
 * Synchronized Sleeping – Ducks can sleep with one eye open and one side of their brain awake, allowing them to stay alert for predators while resting.
-* Quack Echo Mystery – There’s an old myth that a duck’s quack doesn’t echo, but it actually does—just at a pitch and tone that makes it hard to notice.
-* Feet That Don’t Feel Cold – Ducks’ feet have no nerves or blood vessels in the webbing, so they can stand on ice without feeling the cold.
-* Egg-Dumping Behavior – Some female ducks practice "brood parasitism," laying eggs in another duck’s nest to have someone else raise their ducklings.
+* Quack Echo Mystery – There's an old myth that a duck's quack doesn't echo, but it actually does—just at a pitch and tone that makes it hard to notice.
+* Feet That Don't Feel Cold – Ducks' feet have no nerves or blood vessels in the webbing, so they can stand on ice without feeling the cold.
+* Egg-Dumping Behavior – Some female ducks practice "brood parasitism," laying eggs in another duck's nest to have someone else raise their ducklings.
 * Mimicry Skills – Some ducks, like the musk duck, can mimic human speech and other sounds, much like parrots!
 * Built-In Goggles – Ducks have a third eyelid (nictitating membrane) that acts like swim goggles, allowing them to see underwater.
 * Instant Dabbling – Many ducks are "dabblers," tipping their heads underwater while their butts stick up, searching for food without fully submerging.
@@ -119,16 +136,18 @@ Bot: """
         return chain
 
     def create_text_classifier(self):
-
-        llm = HuggingFaceEndpoint(
-            endpoint_url=self.endpoint_url,
-            max_new_tokens=512,
-            top_k=10,
-            top_p=0.95,
-            typical_p=0.95,
-            temperature=0.01,
-            repetition_penalty=1.03,
-        )
+        if self.backend == LLMBackend.HUGGINGFACE:
+            llm = HuggingFaceEndpoint(
+                endpoint_url=self.endpoint_url,
+                max_new_tokens=512,
+                top_k=10,
+                top_p=0.95,
+                typical_p=0.95,
+                temperature=0.01,
+                repetition_penalty=1.03,
+            )
+        else:
+            llm = self.llm
 
         prompt = """Given message to a chatbot, classifiy if the message tells the chatbot to be a duck, a fox or none of these. 
 
@@ -217,22 +236,56 @@ class LogWriter:
             f.write("\n")
             f.close()
 
+def load_config():
+    try:
+        with open("config.json", "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # Standard-Konfiguration
+        return {
+            "llm_backend": "huggingface",
+            "openai_compatible": {
+                "api_base_url": None,
+                "api_key": None
+            }
+        }
+
 if __name__ == "__main__":
+    # Lade Konfiguration
+    config = load_config()
+    
+    try:
+        # Initialisiere Agent mit gewähltem Backend
+        backend = LLMBackend(config.get("llm_backend", "huggingface"))
+        if backend == LLMBackend.OPENAI_COMPATIBLE:
+            openai_config = config.get("openai_compatible", {})
+            agent = AnimalAgent(
+                backend=backend,
+                api_base_url=openai_config.get("api_base_url"),
+                api_key=openai_config.get("api_key")
+            )
+        else:
+            agent = AnimalAgent(backend=backend)
 
-    agent = AnimalAgent()
-    chat_history = []
-    log_writer = LogWriter()
+        chat_history = []
+        log_writer = LogWriter()
 
-    while True:
-        user_message = input('User: ')
-        if user_message.lower() in ['quit', 'exit', 'bye']:
-            print('Goodbye!')
-            break
+        while True:
+            user_message = input('User: ')
+            if user_message.lower() in ['quit', 'exit', 'bye']:
+                print('Goodbye!')
+                break
 
-        chatbot_response, log_message = agent.get_response(user_message, chat_history)
-        print("Bot: " + chatbot_response)
+            try:
+                chatbot_response, log_message = agent.get_response(user_message, chat_history)
+                print("Bot: " + chatbot_response)
 
-        chat_history.extend("User: " + user_message)
-        chat_history.extend("Bot: " + chatbot_response)
-                
-        log_writer.write(log_message)
+                chat_history.extend(["User: " + user_message, "Bot: " + chatbot_response])
+                log_writer.write(log_message)
+            except Exception as e:
+                print(f"Error: {str(e)}")
+                if backend == LLMBackend.OPENAI_COMPATIBLE:
+                    print("Fehler bei der OpenAI-API. Überprüfen Sie Ihre Verbindung und API-Schlüssel.")
+
+    except Exception as e:
+        print(f"Kritischer Fehler beim Start: {str(e)}")

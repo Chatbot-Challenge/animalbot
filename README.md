@@ -28,3 +28,30 @@ Bot: My claws! Unlike most dogs, I have retractable claws that I can pull back i
 
 * Install the requirements.txt
 * `python animalbot.py` to start the chat on the console 
+
+## Configuration
+
+The animalbot supports different LLM backends which can be configured using a `config.json` file. Create a `config.json` in the project root directory with the following structure:
+
+```json
+{
+    "llm_backend": "huggingface",
+    "openai_compatible": {
+        "api_base_url": null,
+        "api_key": null
+    },
+    "huggingface": {
+        "endpoint_url": "http://mds-gpu-medinym.et.uni-magdeburg.de:9000"
+    }
+}
+```
+
+### Configuration Options
+
+* `llm_backend`: Choose between "huggingface" (default) or "openai_compatible"
+* For OpenAI compatible backends:
+  * Set `api_base_url` to your API endpoint
+  * Set `api_key` to your API key, or use environment variable `OPENAI_API_KEY`
+* The `config.json` file is ignored by git to protect sensitive information
+
+If no `config.json` is present, the bot will use the HuggingFace backend by default. 

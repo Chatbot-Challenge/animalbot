@@ -1,2 +1,5 @@
 langchain
+langchain_openai
+langchain_huggingface
+
 langchain-groq==0.2.4
