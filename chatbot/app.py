@@ -142,4 +142,11 @@ if user_input and user_input != st.session_state.last_input:
         st.experimental_rerun()
 
     except Exception as e:
-        st.error(f"Fehler bei der Kommunikation mit dem Server: {str(e)}")
+        error_msg = f"Fehler bei der Kommunikation mit dem Server: {str(e)}"
+        if isinstance(e, requests.RequestException):
+            error_msg += f"\nStatus Code: {e.response.status_code if hasattr(e, 'response') and e.response else 'N/A'}"
+            error_msg += f"\nResponse: {e.response.text if hasattr(e, 'response') and e.response else 'N/A'}"
+            error_msg += f"\nURL: {API_URL}"
+            error_msg += f"\nRequest Data: {user_input[:50]}{'...' if len(user_input) > 50 else ''}"
+            error_msg += f"\nSession ID: {st.session_state.session_id}"
+        st.error(error_msg)
