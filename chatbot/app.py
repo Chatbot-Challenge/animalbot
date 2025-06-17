@@ -10,7 +10,15 @@ st.set_page_config(page_title="Animal Chatbot", page_icon="🐾", layout="center
 # Get API base URL from environment variable or use default
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost")
 API_PORT = os.environ.get("API_PORT", "8000")
-API_URL = f"{API_BASE_URL}:{API_PORT}/chat"
+print(f"Extracted API_BASE_URL: {API_BASE_URL}, API_PORT: {API_PORT}")
+# Check if API_BASE_URL already contains a port (like "http://localhost:8000")
+API_URL = (
+    f"{API_BASE_URL}/chat"
+    if ":" in API_BASE_URL.split("//")[-1]
+    else f"{API_BASE_URL}:{API_PORT}/chat"
+)
+
+print(f"Using API URL: {API_URL}")
 
 # CSS für besseres Styling
 st.markdown(
@@ -121,6 +129,9 @@ if user_input and user_input != st.session_state.last_input:
 
     # API-Anfrage senden
     try:
+        print(
+            f"Sending request to API: {API_URL} with data: {user_input[:20]}{'...' if len(user_input) > 20 else ''}"
+        )
         response = requests.post(
             API_URL,
             json={
@@ -130,7 +141,9 @@ if user_input and user_input != st.session_state.last_input:
             },
         )
         response_data = response.json()
-
+        print(
+            f"Received response from API: {response_data['response'][:20]}{'...' if len(response_data['response']) > 20 else ''}"
+        )
         # Bot-Antwort zum Chat-Verlauf hinzufügen
         st.session_state.messages.append(
             {"role": "bot", "content": response_data["response"]}

@@ -5,7 +5,7 @@ from typing import List, Dict, Any
 from animalbot import AnimalAgent
 
 app = FastAPI()
-
+print("Starting FastAPI server...")
 # CORS für lokale Entwicklung
 app.add_middleware(
     CORSMiddleware,
@@ -18,36 +18,41 @@ app.add_middleware(
 # Dictionary für Session-spezifische Agenten
 session_agents: Dict[str, AnimalAgent] = {}
 
+
 class ChatMessage(BaseModel):
     message: str
     chat_history: List[str] = []
     session_id: str
+
 
 class ChatResponse(BaseModel):
     response: str
     state: str
     log_message: Dict[str, Any]
 
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(chat_message: ChatMessage):
+    print(
+        f"Received message: {chat_message.message} in session {chat_message.session_id}"
+    )
     try:
         # Prüfen ob eine Session-ID existiert, sonst neue erstellen
         if chat_message.session_id not in session_agents:
             session_agents[chat_message.session_id] = AnimalAgent()
-        
+
         agent = session_agents[chat_message.session_id]
         response, log_message = agent.get_response(
-            chat_message.message, 
-            chat_message.chat_history
+            chat_message.message, chat_message.chat_history
         )
         return ChatResponse(
-            response=response,
-            state=agent.state,
-            log_message=log_message
+            response=response, state=agent.state, log_message=log_message
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
